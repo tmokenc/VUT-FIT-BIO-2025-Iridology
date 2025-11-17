@@ -1,60 +1,6 @@
 import { warpSVGCanvas } from './svg_mapper.js';
 
 
-// Radial zones for reference (used in drawIridologyMap)
-const RADIAL_ZONES = [
-    { name: 'Stomach', innerRatio: 0, outerRatio: 0.35 },
-    { name: 'Intestines', innerRatio: 0.35, outerRatio: 0.65 },
-    { name: 'Organs/Glands', innerRatio: 0.65, outerRatio: 0.85 },
-    { name: 'Circulation/Lymph', innerRatio: 0.85, outerRatio: 0.95 },
-    { name: 'Skin/Elimination', innerRatio: 0.95, outerRatio: 1.0 }
-];
-
-// Sector definitions for both eyes
-export const EYE_SECTORS = {
-    left: [
-        { name: 'Throat', startAngle: 0, endAngle: 3 },
-        { name: 'Bronchi', startAngle: 3, endAngle: 7 },
-        { name: 'Thyroid', startAngle: 7, endAngle: 10 },
-        { name: 'Shoulder (L)', startAngle: 10, endAngle: 13 },
-        { name: 'Arm (L)', startAngle: 13, endAngle: 17 },
-        { name: 'Spleen', startAngle: 17, endAngle: 21 },
-        { name: 'Stomach', startAngle: 21, endAngle: 25 },
-        { name: 'Kidney (L)', startAngle: 25, endAngle: 29 },
-        { name: 'Pancreas', startAngle: 29, endAngle: 31 },
-        { name: 'Adrenal (L)', startAngle: 31, endAngle: 33 },
-        { name: 'Descending Colon', startAngle: 33, endAngle: 38 },
-        { name: 'Transverse Colon', startAngle: 38, endAngle: 40 },
-        { name: 'Hip/Leg (L)', startAngle: 40, endAngle: 45 },
-        { name: 'Lower Back', startAngle: 45, endAngle: 48 },
-        { name: 'Sacral/Coccyx', startAngle: 48, endAngle: 50 },
-        { name: 'Prostate/Uterus', startAngle: 50, endAngle: 53 },
-        { name: 'Bladder', startAngle: 53, endAngle: 55 },
-        { name: 'Lung (L)', startAngle: 55, endAngle: 60 }
-    ],
-    right: [
-        { name: 'Throat', startAngle: 0, endAngle: 3 },
-        { name: 'Bronchi', startAngle: 3, endAngle: 7 },
-        { name: 'Thyroid', startAngle: 7, endAngle: 10 },
-        { name: 'Shoulder (R)', startAngle: 10, endAngle: 13 },
-        { name: 'Arm (R)', startAngle: 13, endAngle: 17 },
-        { name: 'Gallbladder', startAngle: 17, endAngle: 19 },
-        { name: 'Liver', startAngle: 19, endAngle: 25 },
-        { name: 'Kidney (R)', startAngle: 25, endAngle: 29 },
-        { name: 'Appendix', startAngle: 29, endAngle: 31 },
-        { name: 'Ileocecal Valve', startAngle: 31, endAngle: 33 },
-        { name: 'Ascending Colon', startAngle: 33, endAngle: 38 },
-        { name: 'Transverse Colon', startAngle: 38, endAngle: 40 },
-        { name: 'Hip/Leg (R)', startAngle: 40, endAngle: 45 },
-        { name: 'Lower Back', startAngle: 45, endAngle: 48 },
-        { name: 'Sacral/Coccyx', startAngle: 48, endAngle: 50 },
-        { name: 'Prostate/Uterus', startAngle: 50, endAngle: 53 },
-        { name: 'Bladder', startAngle: 53, endAngle: 55 },
-        { name: 'Lung (R)', startAngle: 55, endAngle: 60 }
-    ]
-};
-
-
 /**
  * Extract iris as circular image with padding for labels
  * @param {cv.Mat} srcMat - Source image matrix
@@ -123,7 +69,7 @@ const svgCache = {};
  * @param {string} path - Path to SVG file
  * @returns {Promise} - Promise that resolves with the image
  */
-function loadSVGImage(path, dstInner, dstMiddle) {
+export function loadSVGImage(path, dstInner, dstMiddle) {
     return new Promise((resolve, reject) => {
         if (svgCache[path]) {
             resolve(svgCache[path]);
@@ -298,7 +244,7 @@ export async function drawAdaptedSVGIridologyMap(ctx, size, iris, pupil, middleC
 
     try {
         // Load the SVG map
-        const svgFile = eye === 'left' ? '/left.svg' : '/right.svg';
+        const svgFile = eye === 'left' ? '/src/svg/left.svg' : '/src/svg/right.svg';
         const svgImg = await loadSVGImage(
             svgFile,
             pupil.r / maxRadius,
@@ -356,7 +302,7 @@ export async function drawUnwrappedIridologyMap(ctx, size, eye = 'right', option
     const irisRadius = size / 2.8;
 
     // Choose SVG file based on eye
-    const svgFile = eye === 'left' ? '/left.svg' : '/right.svg';
+    const svgFile = eye === 'left' ? '/src/svg/left.svg' : '/src/svg/right.svg';
 
     try {
         const img = await loadSVGImage(svgFile);

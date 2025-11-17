@@ -1,11 +1,13 @@
 import { detect } from './iris.js';
-import { drawIridologyMap, createInteractiveMap, drawRadialZoneLegend, unwrapIris, drawUnwrappedIridologyMap, drawIridologyMapWithHealth, drawAdaptedIridologyMap, drawAdaptedSVGIridologyMap } from './iridologyMap.js';
-import { EYE_SECTORS } from './iridologyMap.js';
+import { drawIridologyMap, createInteractiveMap, drawRadialZoneLegend, unwrapIris, drawUnwrappedIridologyMap, drawIridologyMapWithHealth, drawAdaptedIridologyMap, drawAdaptedSVGIridologyMap, loadSVGImage } from './iridologyMap.js';
 
 // Make onOpenCvReady global so it can be called from the OpenCV script onload
 window.onOpenCvReady = function () {
   cvReady = true;
   console.log('OpenCV.js loaded');
+  // Hide OpenCV loader
+  const cvLoader = document.getElementById('cvLoader');
+  if (cvLoader) cvLoader.style.display = 'none';
 };
 
 // DOM elements cache
@@ -292,8 +294,8 @@ async function runDetectOnCanvas(canvas, msgEl, drawInfo, eye = 'left') {
     // Show the unwrap container
     eyeDOM.unwrapContainer.style.display = 'block';
 
-    // Add interactive hover functionality
-    setupCanvasHover(eyeDOM.unwrapCanvas, result.iris, result.pupil, eye);
+    // Setup hover based on SVG regions
+    setupSVGHover(eyeDOM.unwrapCanvas, eye);
 
     msgEl.className = 'ok';
     msgEl.textContent = 'Detected: pupil and iris.';
@@ -304,9 +306,9 @@ async function runDetectOnCanvas(canvas, msgEl, drawInfo, eye = 'left') {
   }
 }
 
-// Setup hover functionality for unwrapped canvas
-function setupCanvasHover(canvas, iris, pupil, eye) {
-  // Create tooltip element if it doesn't exist
+// Setup hover functionality based on SVG regions
+async function setupSVGHover(canvas, eye) {
+  // Create tooltip element
   let tooltip = document.getElementById('iris-tooltip');
   if (!tooltip) {
     tooltip = document.createElement('div');
@@ -328,66 +330,171 @@ function setupCanvasHover(canvas, iris, pupil, eye) {
     document.body.appendChild(tooltip);
   }
 
-  // Remove old listeners
-  const oldHandler = canvas._hoverHandler;
-  if (oldHandler) {
-    canvas.removeEventListener('mousemove', oldHandler);
-    canvas.removeEventListener('mouseleave', oldHandler.leave);
-  }
+  // Load SVG and parse regions
+  const svgFile = eye === 'left' ? '/src/svg/left.svg' : '/src/svg/right.svg';
 
-  const size = canvas.width;
-  const center = size / 2;
-  const irisRadius = size / 2.8;
+  try {
+    const response = await fetch(svgFile);
+    const svgText = await response.text();
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
 
-  const sectors = EYE_SECTORS[eye] || EYE_SECTORS['right'];
+    if (svgDoc.querySelector('parsererror')) {
+      throw new Error('Invalid SVG');
+    }
 
-  const handleMouseMove = (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Get SVG dimensions from viewBox
+    const svgElement = svgDoc.documentElement;
+    const viewBox = svgElement.getAttribute('viewBox');
+    let svgWidth = 639.5, svgHeight = 639.1;
 
-    // Convert canvas coordinates to centered coordinates
-    const dx = x * (canvas.width / rect.width) - center;
-    const dy = y * (canvas.height / rect.height) - center;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (viewBox) {
+      const parts = viewBox.split(/[\s,]+/);
+      svgWidth = parseFloat(parts[2]) || 639.5;
+      svgHeight = parseFloat(parts[3]) || 639.1;
+    }
 
-    // Check if mouse is within iris
-    if (distance <= irisRadius && distance > 0) {
-      // Calculate angle (0-60 scale)
-      let angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
-      if (angle < 0) angle += 360;
-      let clockPosition = (angle / 360) * 60;
+    // Get the g element with transform
+    const gElement = svgDoc.getElementById('g47');
+    const gTransform = gElement?.getAttribute('transform') || '';
 
-      // Find which sector
-      const sector = sectors.find(s =>
-        clockPosition >= s.startAngle && clockPosition < s.endAngle
-      );
+    // Parse translate values from g element (translate(-7.3117924,-8.9741507))
+    let translateX = 0, translateY = 0;
+    const translateMatch = gTransform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
+    if (translateMatch) {
+      translateX = parseFloat(translateMatch[1]);
+      translateY = parseFloat(translateMatch[2]);
+    }
 
-      if (sector) {
-        tooltip.textContent = sector.name;
+    // Extract regions from the 'region' group or anywhere in SVG
+    const regions = [];
+    const regionGroup = svgDoc.getElementById('region');
+
+    // Try to find labeled elements - first in region group, then everywhere
+    let labeledElements = [];
+    if (regionGroup) {
+      labeledElements = Array.from(regionGroup.querySelectorAll('[inkscape\\:label]'));
+      console.log('Found in region group:', labeledElements.length);
+    }
+
+    // If not found in region group, search entire SVG
+    if (labeledElements.length === 0) {
+      // Try with different namespace notation
+      labeledElements = Array.from(svgDoc.querySelectorAll('path[inkscape\\:label]'));
+      console.log('Found with path selector:', labeledElements.length);
+    }
+
+    if (labeledElements.length === 0) {
+      // Try without escaping (works with getAttributeNS)
+      labeledElements = Array.from(svgDoc.querySelectorAll('path')).filter(el => {
+        const label = el.getAttribute('inkscape:label');
+        return label && el.getAttribute('d');
+      });
+      console.log('Found with filter:', labeledElements.length);
+    }
+
+    console.log('Found labeled elements:', labeledElements.length);
+
+    labeledElements.forEach(el => {
+      const label = el.getAttribute('inkscape:label');
+      const pathData = el.getAttribute('d');
+
+      if (label && pathData) {
+        regions.push({
+          label: label,
+          path: pathData,
+          transform: el.getAttribute('transform') || ''
+        });
+      }
+    });
+
+    console.log('Extracted regions:', regions.length, regions.map(r => r.label));
+    console.log(`Found ${regions.length} regions for ${eye} eye`);
+
+    // Remove old listeners
+    const oldHandler = canvas._svgHoverHandler;
+    if (oldHandler) {
+      canvas.removeEventListener('mousemove', oldHandler);
+      canvas.removeEventListener('mouseleave', oldHandler.leave);
+    }
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+      // Transform mouse coordinates to SVG space
+      // Canvas coordinates are centered at canvas.width/2, canvas.height/2
+      // SVG coordinates need to account for the iris being scaled and centered
+
+      const canvasCenter = canvas.width / 2;
+      const irisRadiusCanvas = canvas.width / 2.8;
+
+      // Calculate relative position from canvas center
+      const dx = mouseX - canvasCenter;
+      const dy = mouseY - canvasCenter;
+
+      // Map to SVG coordinates
+      // The SVG is scaled to fit the iris radius on canvas
+      const svgRadius = Math.min(svgWidth, svgHeight) / 2;
+      const scale = svgRadius / irisRadiusCanvas;
+
+      // SVG center (accounting for g transform)
+      const svgCenterX = svgWidth / 2 - translateX;
+      const svgCenterY = svgHeight / 2 - translateY;
+
+      const svgX = svgCenterX + dx * scale;
+      const svgY = svgCenterY + dy * scale;
+
+      // Check each region using path contains point algorithm
+      let foundRegion = null;
+      for (const region of regions) {
+        if (isPointInPath(svgX, svgY, region.path)) {
+          foundRegion = region.label;
+          break;
+        }
+      }
+
+      if (foundRegion) {
+        tooltip.textContent = foundRegion;
         tooltip.style.display = 'block';
         tooltip.style.left = (e.clientX + 15) + 'px';
         tooltip.style.top = (e.clientY + 15) + 'px';
         canvas.style.cursor = 'pointer';
-        return;
+      } else {
+        tooltip.style.display = 'none';
+        canvas.style.cursor = 'default';
       }
-    }
+    };
 
-    tooltip.style.display = 'none';
-    canvas.style.cursor = 'default';
-  };
+    const handleMouseLeave = () => {
+      tooltip.style.display = 'none';
+      canvas.style.cursor = 'default';
+    };
 
-  const handleMouseLeave = () => {
-    tooltip.style.display = 'none';
-    canvas.style.cursor = 'default';
-  };
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
 
-  canvas.addEventListener('mousemove', handleMouseMove);
-  canvas.addEventListener('mouseleave', handleMouseLeave);
+    canvas._svgHoverHandler = handleMouseMove;
+    canvas._svgHoverHandler.leave = handleMouseLeave;
 
-  // Store handlers for cleanup
-  canvas._hoverHandler = handleMouseMove;
-  canvas._hoverHandler.leave = handleMouseLeave;
+  } catch (err) {
+    console.error('Failed to setup SVG hover:', err);
+  }
+}
+
+// Helper function to check if point is in SVG path using canvas
+function isPointInPath(x, y, pathData) {
+  try {
+    const testCanvas = document.createElement('canvas');
+    testCanvas.width = 1;
+    testCanvas.height = 1;
+    const ctx = testCanvas.getContext('2d');
+    const path = new Path2D(pathData);
+    return ctx.isPointInPath(path, x, y);
+  } catch (err) {
+    return false;
+  }
 }
 
 // overlay circles on canvas
@@ -416,6 +523,6 @@ function overlayCircles(canvas, pupil, iris, middleCircle, eye = 'left') {
 // graceful message if OpenCV doesn't load in a few seconds
 setTimeout(() => {
   if (!cvReady) {
-    console.warn('OpenCV.js still not ready after timeout — if you are offline, include a local opencv.js build.');
+    console.warn('OpenCV.js still not ready after timeout – if you are offline, include a local opencv.js build.');
   }
 }, 5000);
