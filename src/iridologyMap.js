@@ -1,8 +1,3 @@
-/**
- * Iridology Map Module
- * Creates an iridological chart overlay on detected iris
- */
-
 import { warpSVGCanvas } from './svg_mapper.js';
 
 
@@ -148,7 +143,7 @@ function loadSVGImage(path, dstInner, dstMiddle) {
 
             // 2. Warp it
             const warped = warpSVGCanvas(
-                temp, 
+                temp,
                 // percentage radii in detected iris
                 // calculated by r / maxRadius
                 dstInner, dstMiddle
@@ -235,29 +230,6 @@ export function drawAdaptedIridologyMap(ctx, size, iris, pupil, middleCircle, ey
         );
         ctx.stroke();
     }
-
-    // ===== IMPORTANT BOUNDARIES =====
-
-    // Pupil boundary (жёлтая/оранжевая линия)
-    ctx.strokeStyle = 'rgba(255, 200, 0, 1)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, pupilRadiusCanvas, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Middle circle boundary (зелёная линия)
-    ctx.strokeStyle = 'rgba(0, 255, 100, 1)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, middleCircleRadiusCanvas, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Outer iris boundary (синяя линия)
-    ctx.strokeStyle = 'rgba(0, 150, 255, 1)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, irisRadiusOuter, 0, Math.PI * 2);
-    ctx.stroke();
 
     // ===== CROSSHAIR (крестик в центре) =====
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
@@ -355,26 +327,6 @@ export async function drawAdaptedSVGIridologyMap(ctx, size, iris, pupil, middleC
         ctx.drawImage(svgImg, 0, 0, svgSize, svgSize);
 
         ctx.restore();
-        ctx.save();
-
-        // Now draw the colored boundaries on top
-        ctx.strokeStyle = 'rgba(255, 200, 0, 1)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, pupilRadiusCanvas, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(0, 255, 100, 1)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, middleCircleRadiusCanvas, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(0, 150, 255, 1)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, irisRadiusOuter, 0, Math.PI * 2);
-        ctx.stroke();
 
     } catch (error) {
         console.error('Error loading SVG map:', error);
