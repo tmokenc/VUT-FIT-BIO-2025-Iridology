@@ -57,6 +57,7 @@ function showResultModal(eye) {
 
     // Store the version with map
     resultCanvas.dataset.eye = eye;
+    resultCanvas.dataset.sourceCanvasWidth = sourceCanvas.width;
     resultCanvas.dataset.canvasWithMap = resultCanvas.toDataURL('image/png');
 
     // Create version without the map
@@ -89,8 +90,10 @@ function showResultModal(eye) {
 
   resultModal.style.display = 'flex';
 
-  // Setup hover for result canvas
-  setupSVGHover(resultCanvas, eye);
+  // Setup hover for result canvas after a brief delay to ensure canvas is rendered
+  setTimeout(() => {
+    setupSVGHover(resultCanvas, eye);
+  }, 100);
 } function closeResultModal() {
   const resultModal = document.getElementById('resultModal');
   if (resultModal) resultModal.style.display = 'none';
@@ -525,35 +528,90 @@ async function setupSVGHover(canvas, eye) {
     // Mouse move handler
     const handleMouseMove = (e) => {
       const rect = canvas.getBoundingClientRect();
-      const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
-      const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-      // Transform canvas coords to SVG viewBox coords
-      const canvasCenter = canvas.width / 2;
-      const irisRadiusCanvas = canvas.width / 2.8;
-      const dx = canvasX - canvasCenter;
-      const dy = canvasY - canvasCenter;
+      // Get displayed size of canvas (accounting for CSS scaling)
+      const displayWidth = rect.width;
+      const displayHeight = rect.height;
+
+      // Mouse position in canvas coordinates (actual pixel position in the 2000x2000 canvas)
+      const canvasX = (e.clientX - rect.left) * (canvas.width / displayWidth);
+      const canvasY = (e.clientY - rect.top) * (canvas.height / displayHeight);
+
+      // The unwrapped iris fills the entire unwrapCanvas
+      // So SVG coordinates map directly to unwrapCanvas coordinates
+      // We just need to scale from resultCanvas (2000x2000) to unwrapCanvas (e.g., 682x682)
+
+      const sourceCanvasWidth = parseInt(canvas.dataset.sourceCanvasWidth) || 600;
+      const scaleFromResultToSource = sourceCanvasWidth / canvas.width;
+
+      // Scale the canvas coordinates to source canvas coordinates
+      const sourceCanvasX = canvasX * scaleFromResultToSource;
+      const sourceCanvasY = canvasY * scaleFromResultToSource;
+
+      // The iris in unwrapCanvas is centered and has radius = sourceCanvasWidth / 2.8
+      // But the entire unwrapCanvas IS the unwrapped iris
+      // So we map from 0..sourceCanvasWidth to SVG viewBox coordinates
+
+      const canvasCenter = sourceCanvasWidth / 2;
+      const irisRadiusSource = sourceCanvasWidth / 2.8;
+      const dx = sourceCanvasX - canvasCenter;
+      const dy = sourceCanvasY - canvasCenter;
+
+      // Map to SVG coordinates
       const svgIrisRadius = Math.min(viewBoxWidth, viewBoxHeight) / 2;
-      const scale = svgIrisRadius / irisRadiusCanvas;
+      const scale = svgIrisRadius / irisRadiusSource;
       const svgCenterX = viewBoxX + viewBoxWidth / 2;
       const svgCenterY = viewBoxY + viewBoxHeight / 2;
       const svgX = svgCenterX + dx * scale;
       const svgY = svgCenterY + dy * scale;
 
-      // Check regions using precomputed Path2D
+      // Debug logging - uncomment to see details
+      /*
+      if (e.clientX === e.clientX) {
+        const debugInfo = {
+          sourceCanvasWidth: sourceCanvasWidth,
+          displaySize: `${displayWidth.toFixed(0)}x${displayHeight.toFixed(0)}`,
+          canvasSize: `${canvas.width}x${canvas.height}`,
+          mousePos: `${e.clientX.toFixed(0)}, ${e.clientY.toFixed(0)}`,
+          canvasPos: `${canvasX.toFixed(0)}, ${canvasY.toFixed(0)}`,
+          sourcePos: `${sourceCanvasX.toFixed(0)}, ${sourceCanvasY.toFixed(0)}`,
+          irisRadiusSource: irisRadiusSource.toFixed(0),
+          scale: scale.toFixed(3),
+          svgCoords: `${svgX.toFixed(0)}, ${svgY.toFixed(0)}`
+        };
+        console.log('Hover Debug:', debugInfo);
+      }
+      */      // Check regions using precomputed Path2D
       let foundRegion = null;
       for (const region of regions) {
-        if (testCtx.isPointInPath(region.path, svgX, svgY)) {
-          foundRegion = region.label;
-          break;
+        try {
+          if (testCtx.isPointInPath(region.path, svgX, svgY)) {
+            foundRegion = region.label;
+            break;
+          }
+        } catch (err) {
+          console.error('Error checking region:', region.label, err);
         }
       }
 
       if (foundRegion) {
         tooltip.textContent = foundRegion;
         tooltip.style.display = 'block';
-        tooltip.style.left = (e.clientX + 15) + 'px';
-        tooltip.style.top = (e.clientY + 15) + 'px';
+        // Position tooltip at mouse location but make sure it stays on screen
+        let tooltipX = e.clientX + 15;
+        let tooltipY = e.clientY + 15;
+
+        // Keep tooltip within viewport
+        const tooltipRect = tooltip.getBoundingClientRect();
+        if (tooltipX + 100 > window.innerWidth) {
+          tooltipX = e.clientX - 115; // Position to the left
+        }
+        if (tooltipY + 30 > window.innerHeight) {
+          tooltipY = e.clientY - 35; // Position above
+        }
+
+        tooltip.style.left = tooltipX + 'px';
+        tooltip.style.top = tooltipY + 'px';
         canvas.style.cursor = 'pointer';
       } else {
         tooltip.style.display = 'none';
