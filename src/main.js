@@ -479,73 +479,47 @@ async function setupSVGHover(canvas, eye) {
       throw new Error('Invalid SVG');
     }
 
-    // Get SVG dimensions from viewBox
+    // Get SVG viewBox dimensions
     const svgElement = svgDoc.documentElement;
-    const viewBox = svgElement.getAttribute('viewBox');
-    let svgWidth = 639.5, svgHeight = 639.1;
+    const viewBoxStr = svgElement.getAttribute('viewBox');
+    let viewBoxX = 0, viewBoxY = 0, viewBoxWidth = 640, viewBoxHeight = 640;
 
-    if (viewBox) {
-      const parts = viewBox.split(/[\s,]+/);
-      svgWidth = parseFloat(parts[2]) || 639.5;
-      svgHeight = parseFloat(parts[3]) || 639.1;
+    if (viewBoxStr) {
+      const parts = viewBoxStr.split(/[\s,]+/);
+      viewBoxX = parseFloat(parts[0]) || 0;
+      viewBoxY = parseFloat(parts[1]) || 0;
+      viewBoxWidth = parseFloat(parts[2]) || 640;
+      viewBoxHeight = parseFloat(parts[3]) || 640;
     }
 
-    // Get the g element with transform
-    const gElement = svgDoc.getElementById('g47');
-    const gTransform = gElement?.getAttribute('transform') || '';
+    console.log(`SVG viewBox: ${viewBoxX}, ${viewBoxY}, ${viewBoxWidth}x${viewBoxHeight} for ${eye} eye`);
 
-    // Parse translate values from g element (translate(-7.3117924,-8.9741507))
-    let translateX = 0, translateY = 0;
-    const translateMatch = gTransform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/);
-    if (translateMatch) {
-      translateX = parseFloat(translateMatch[1]);
-      translateY = parseFloat(translateMatch[2]);
-    }
-
-    // Extract regions from the 'region' group or anywhere in SVG
+    // Extract regions from the 'region' group
     const regions = [];
     const regionGroup = svgDoc.getElementById('region');
 
-    // Try to find labeled elements - first in region group, then everywhere
-    let labeledElements = [];
     if (regionGroup) {
-      labeledElements = Array.from(regionGroup.querySelectorAll('[inkscape\\:label]'));
-      console.log('Found in region group:', labeledElements.length);
-    }
+      // Find all path elements with inkscape:label within the region group
+      const paths = Array.from(regionGroup.querySelectorAll('path'));
 
-    // If not found in region group, search entire SVG
-    if (labeledElements.length === 0) {
-      // Try with different namespace notation
-      labeledElements = Array.from(svgDoc.querySelectorAll('path[inkscape\\:label]'));
-      console.log('Found with path selector:', labeledElements.length);
-    }
+      paths.forEach(pathEl => {
+        const label = pathEl.getAttribute('inkscape:label');
+        const pathData = pathEl.getAttribute('d');
 
-    if (labeledElements.length === 0) {
-      // Try without escaping (works with getAttributeNS)
-      labeledElements = Array.from(svgDoc.querySelectorAll('path')).filter(el => {
-        const label = el.getAttribute('inkscape:label');
-        return label && el.getAttribute('d');
+        if (label && pathData) {
+          regions.push({
+            label: label.trim(),
+            pathData: pathData,
+            element: pathEl
+          });
+        }
       });
-      console.log('Found with filter:', labeledElements.length);
+
+      console.log(`Found ${regions.length} regions for ${eye} eye:`, regions.map(r => r.label));
+    } else {
+      console.warn('No region group found in SVG');
+      return;
     }
-
-    console.log('Found labeled elements:', labeledElements.length);
-
-    labeledElements.forEach(el => {
-      const label = el.getAttribute('inkscape:label');
-      const pathData = el.getAttribute('d');
-
-      if (label && pathData) {
-        regions.push({
-          label: label,
-          path: pathData,
-          transform: el.getAttribute('transform') || ''
-        });
-      }
-    });
-
-    console.log('Extracted regions:', regions.length, regions.map(r => r.label));
-    console.log(`Found ${regions.length} regions for ${eye} eye`);
 
     // Remove old listeners
     const oldHandler = canvas._svgHoverHandler;
@@ -556,36 +530,39 @@ async function setupSVGHover(canvas, eye) {
 
     const handleMouseMove = (e) => {
       const rect = canvas.getBoundingClientRect();
-      const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
-      const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-      // Transform mouse coordinates to SVG space
-      // Canvas coordinates are centered at canvas.width/2, canvas.height/2
-      // SVG coordinates need to account for the iris being scaled and centered
+      // Canvas mouse coordinates (scaled from display to actual canvas resolution)
+      const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
+      // Canvas center and iris radius
       const canvasCenter = canvas.width / 2;
       const irisRadiusCanvas = canvas.width / 2.8;
 
-      // Calculate relative position from canvas center
-      const dx = mouseX - canvasCenter;
-      const dy = mouseY - canvasCenter;
+      // Transform canvas coordinates to SVG viewBox coordinates
+      // The canvas represents the iris with irisRadiusCanvas radius from center
+      // The SVG viewBox represents the same iris
 
-      // Map to SVG coordinates
-      // The SVG is scaled to fit the iris radius on canvas
-      const svgRadius = Math.min(svgWidth, svgHeight) / 2;
-      const scale = svgRadius / irisRadiusCanvas;
+      const dx = canvasX - canvasCenter;
+      const dy = canvasY - canvasCenter;
 
-      // SVG center (accounting for g transform)
-      const svgCenterX = svgWidth / 2 - translateX;
-      const svgCenterY = svgHeight / 2 - translateY;
+      // Scale factor from canvas to SVG
+      const svgIrisRadius = Math.min(viewBoxWidth, viewBoxHeight) / 2;
+      const scale = svgIrisRadius / irisRadiusCanvas;
 
+      // SVG center
+      const svgCenterX = viewBoxX + viewBoxWidth / 2;
+      const svgCenterY = viewBoxY + viewBoxHeight / 2;
+
+      // Transform to SVG coordinates
       const svgX = svgCenterX + dx * scale;
       const svgY = svgCenterY + dy * scale;
 
-      // Check each region using path contains point algorithm
+      // Check each region
       let foundRegion = null;
+
       for (const region of regions) {
-        if (isPointInPath(svgX, svgY, region.path)) {
+        if (isPointInSVGPath(svgX, svgY, region.pathData)) {
           foundRegion = region.label;
           break;
         }
@@ -619,13 +596,16 @@ async function setupSVGHover(canvas, eye) {
   }
 }
 
-// Helper function to check if point is in SVG path using canvas
-function isPointInPath(x, y, pathData) {
+// Helper function to check if point is in SVG path using canvas context
+function isPointInSVGPath(x, y, pathData) {
   try {
+    // Create a canvas with appropriate size for the SVG coordinate space
     const testCanvas = document.createElement('canvas');
-    testCanvas.width = 1;
-    testCanvas.height = 1;
+    testCanvas.width = 2000;
+    testCanvas.height = 2000;
     const ctx = testCanvas.getContext('2d');
+
+    // Create path and test point
     const path = new Path2D(pathData);
     return ctx.isPointInPath(path, x, y);
   } catch (err) {
